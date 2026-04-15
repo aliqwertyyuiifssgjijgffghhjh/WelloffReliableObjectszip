@@ -14,7 +14,7 @@ from telegram.constants import ParseMode
 import database as db
 from config import BOT_TOKEN, BOT_NAME, VERSION
 from handlers.admin import admin_panel, handle_admin_callback, handle_admin_text
-from handlers.downloader import download_tiktok, cleanup_file
+from handlers.downloader import download_tiktok, cleanup_file, extract_tiktok_url
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -22,11 +22,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TIKTOK_DOMAINS = ["tiktok.com", "vm.tiktok.com", "vt.tiktok.com", "www.tiktok.com"]
 
-
-def is_tiktok_url(text: str) -> bool:
-    return any(domain in text.lower() for domain in TIKTOK_DOMAINS)
+def find_tiktok_url(text: str) -> str | None:
+    """Return extracted TikTok URL from any message text, or None."""
+    return extract_tiktok_url(text)
 
 
 def main_keyboard():
@@ -153,9 +152,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await handle_admin_text(update, context):
         return
 
-    # TikTok URL
-    if is_tiktok_url(text):
-        await process_download(update, context, text)
+    # Extract TikTok URL from the message (handles share text, short links, full links)
+    tiktok_url = find_tiktok_url(text)
+    if tiktok_url:
+        await process_download(update, context, tiktok_url)
     else:
         await update.message.reply_text(
             "❓ Please send a valid TikTok link.\n\nExample:\n`https://vm.tiktok.com/xxxxx`",
