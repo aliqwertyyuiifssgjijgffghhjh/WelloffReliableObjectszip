@@ -1,5 +1,6 @@
 import logging
 import os
+import html as html_mod
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -22,21 +23,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+HTML = ParseMode.HTML
+
+
+def h(text) -> str:
+    """Safely escape any dynamic value for HTML Telegram messages."""
+    return html_mod.escape(str(text))
+
 
 def find_tiktok_url(text: str) -> str | None:
-    """Return extracted TikTok URL from any message text, or None."""
     return extract_tiktok_url(text)
 
 
 def main_keyboard():
-    keyboard = [
+    return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("📥 How to Download", callback_data="how_to"),
             InlineKeyboardButton("ℹ️ About", callback_data="about"),
         ],
         [InlineKeyboardButton("📊 My Stats", callback_data="my_stats")],
-    ]
-    return InlineKeyboardMarkup(keyboard)
+    ])
 
 
 # ─── /start ───────────────────────────────────────────────────────────────────
@@ -46,18 +52,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.add_user(user.id, user.username or "", user.full_name or "")
     db.update_user_info(user.id, user.username or "", user.full_name or "")
     db.write_log(f"User {user.id} ({user.full_name}) started the bot")
-
-    # Set first user as admin automatically
     db.set_first_admin(user.id)
 
     settings = db.get_settings()
 
-    # Maintenance check (skip for admins)
     if settings["maintenance"] and not db.is_admin(user.id):
         await update.message.reply_text("🛠️ Bot is under maintenance. Please try again later.")
         return
 
-    # Force join check
     if settings["force_join"] and settings["force_join_channel"]:
         channel = settings["force_join_channel"]
         try:
@@ -66,18 +68,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 keyboard = [[InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{channel.lstrip('@')}")]]
                 keyboard.append([InlineKeyboardButton("✅ I Joined", callback_data="check_join")])
                 await update.message.reply_text(
-                    f"⚠️ You must join {channel} to use this bot.",
+                    f"⚠️ You must join {h(channel)} to use this bot.",
+                    parse_mode=HTML,
                     reply_markup=InlineKeyboardMarkup(keyboard),
                 )
                 return
         except Exception:
             pass
 
-    welcome = settings.get("welcome_message", "Welcome! Send me a TikTok link to download it without watermark.")
+    welcome = h(settings.get("welcome_message", "Welcome! Send me a TikTok link to download it without watermark."))
     await update.message.reply_text(
-        f"👋 *Hello {user.first_name}!*\n\n{welcome}\n\n"
-        f"Just paste any TikTok link and I'll download it *without watermark* instantly! 🚀",
-        parse_mode=ParseMode.MARKDOWN,
+        f"👋 <b>Hello {h(user.first_name)}!</b>\n\n{welcome}\n\n"
+        f"Just paste any TikTok link and I'll download it <b>without watermark</b> instantly! 🚀",
+        parse_mode=HTML,
         reply_markup=main_keyboard(),
     )
 
@@ -86,15 +89,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
-        "📖 *How to use this bot:*\n\n"
+        "📖 <b>How to use this bot:</b>\n\n"
         "1. Copy a TikTok video link\n"
         "2. Paste it here in the chat\n"
-        "3. The bot will download and send the video *without watermark* ✨\n\n"
-        "*Supported links:*\n"
-        "• `https://www.tiktok.com/@user/video/...`\n"
-        "• `https://vm.tiktok.com/...`\n"
-        "• `https://vt.tiktok.com/...`\n\n"
-        "*Commands:*\n"
+        "3. The bot will download and send the video <b>without watermark</b> ✨\n\n"
+        "<b>Supported links:</b>\n"
+        "• <code>https://www.tiktok.com/@user/video/...</code>\n"
+        "• <code>https://vm.tiktok.com/...</code>\n"
+        "• <code>https://vt.tiktok.com/...</code>\n\n"
+        "<b>Commands:</b>\n"
         "/start — Start the bot\n"
         "/help — Show this help\n"
         "/stats — Your download stats\n"
@@ -102,7 +105,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(
         text,
-        parse_mode=ParseMode.MARKDOWN,
+        parse_mode=HTML,
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Home", callback_data="home")]]),
     )
 
@@ -117,15 +120,12 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     downloads = u.get("downloads", 0)
     joined = u.get("joined", "—")[:10]
-    text = (
-        f"📊 *Your Statistics*\n\n"
-        f"👤 Name: {user.full_name}\n"
-        f"📥 Downloads: `{downloads}`\n"
-        f"📅 Joined: `{joined}`\n"
-    )
     await update.message.reply_text(
-        text,
-        parse_mode=ParseMode.MARKDOWN,
+        f"📊 <b>Your Statistics</b>\n\n"
+        f"👤 Name: {h(user.full_name)}\n"
+        f"📥 Downloads: <code>{downloads}</code>\n"
+        f"📅 Joined: <code>{h(joined)}</code>\n",
+        parse_mode=HTML,
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Home", callback_data="home")]]),
     )
 
@@ -148,18 +148,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🛠️ Bot is under maintenance. Please try again later.")
         return
 
-    # Handle admin text inputs
     if await handle_admin_text(update, context):
         return
 
-    # Extract TikTok URL from the message (handles share text, short links, full links)
     tiktok_url = find_tiktok_url(text)
     if tiktok_url:
         await process_download(update, context, tiktok_url)
     else:
         await update.message.reply_text(
-            "❓ Please send a valid TikTok link.\n\nExample:\n`https://vm.tiktok.com/xxxxx`",
-            parse_mode=ParseMode.MARKDOWN,
+            "❓ Please send a valid TikTok link.\n\nExample:\n<code>https://vm.tiktok.com/xxxxx</code>",
+            parse_mode=HTML,
             reply_markup=main_keyboard(),
         )
 
@@ -169,33 +167,32 @@ async def process_download(update: Update, context: ContextTypes.DEFAULT_TYPE, u
     msg = await update.message.reply_text("⏳ Downloading your video, please wait...")
 
     db.write_log(f"User {user.id} requested download: {url}")
-
     result = await download_tiktok(url)
 
     if not result["success"]:
         error = result.get("error", "Unknown error")
         db.write_log(f"Download failed for {user.id}: {error}")
         await msg.edit_text(
-            f"❌ *Download failed!*\n\n`{error[:200]}`\n\n"
+            f"❌ <b>Download failed!</b>\n\n<code>{h(error[:300])}</code>\n\n"
             "Please make sure the link is valid and the video is public.",
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode=HTML,
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Try Again", callback_data="how_to")]]),
         )
         return
 
     file_path = result["path"]
-    title = result.get("title", "TikTok Video")[:50]
+    title = result.get("title", "TikTok Video")[:80]
     author = result.get("author", "Unknown")
     duration = result.get("duration", 0)
     views = result.get("views", 0)
 
     caption = (
-        f"✅ *Downloaded Successfully!*\n\n"
-        f"🎵 *{title}*\n"
-        f"👤 Author: {author}\n"
+        f"✅ <b>Downloaded Successfully!</b>\n\n"
+        f"🎵 <b>{h(title)}</b>\n"
+        f"👤 Author: {h(author)}\n"
         f"⏱️ Duration: {duration}s\n"
         f"👁️ Views: {views:,}\n\n"
-        f"_No watermark_ 🚫💧"
+        f"<i>No watermark</i> 🚫💧"
     )
 
     try:
@@ -204,7 +201,7 @@ async def process_download(update: Update, context: ContextTypes.DEFAULT_TYPE, u
             await update.message.reply_video(
                 video=video_file,
                 caption=caption,
-                parse_mode=ParseMode.MARKDOWN,
+                parse_mode=HTML,
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("📥 Download Another", callback_data="how_to")],
                     [InlineKeyboardButton("📊 My Stats", callback_data="my_stats")],
@@ -214,7 +211,7 @@ async def process_download(update: Update, context: ContextTypes.DEFAULT_TYPE, u
         db.increment_downloads(user.id)
         db.write_log(f"Download success for {user.id}: {title}")
     except Exception as e:
-        await msg.edit_text(f"❌ Failed to send video: {str(e)[:200]}")
+        await msg.edit_text(f"❌ Failed to send video: {h(str(e)[:200])}", parse_mode=HTML)
         db.write_log(f"Upload failed for {user.id}: {str(e)}")
     finally:
         cleanup_file(file_path)
@@ -234,37 +231,38 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "home":
         settings = db.get_settings()
-        welcome = settings.get("welcome_message", "Send me a TikTok link to download it without watermark.")
+        welcome = h(settings.get("welcome_message", "Send me a TikTok link to download it without watermark."))
         await query.edit_message_text(
-            f"👋 *Hello {user.first_name}!*\n\n{welcome}\n\n"
-            "Just paste any TikTok link and I'll download it *without watermark* instantly! 🚀",
-            parse_mode=ParseMode.MARKDOWN,
+            f"👋 <b>Hello {h(user.first_name)}!</b>\n\n{welcome}\n\n"
+            "Just paste any TikTok link and I'll download it <b>without watermark</b> instantly! 🚀",
+            parse_mode=HTML,
             reply_markup=main_keyboard(),
         )
 
     elif data == "how_to":
         await query.edit_message_text(
-            "📖 *How to download:*\n\n"
+            "📖 <b>How to download:</b>\n\n"
             "1️⃣ Open TikTok app\n"
             "2️⃣ Find the video you want\n"
-            "3️⃣ Tap *Share* → *Copy Link*\n"
+            "3️⃣ Tap <b>Share</b> → <b>Copy Link</b>\n"
             "4️⃣ Paste the link here\n"
             "5️⃣ Wait a few seconds ✨\n\n"
-            "*Supported formats:*\n"
+            "<b>Supported formats:</b>\n"
             "• TikTok full links\n"
-            "• TikTok short links (vm.tiktok.com)\n",
-            parse_mode=ParseMode.MARKDOWN,
+            "• TikTok short links (vm.tiktok.com)\n"
+            "• Full share text (just paste it!)\n",
+            parse_mode=HTML,
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Home", callback_data="home")]]),
         )
 
     elif data == "about":
         await query.edit_message_text(
-            f"ℹ️ *About {BOT_NAME}*\n\n"
-            f"🤖 Version: `{VERSION}`\n"
+            f"ℹ️ <b>About {h(BOT_NAME)}</b>\n\n"
+            f"🤖 Version: <code>{VERSION}</code>\n"
             f"🎯 Purpose: Download TikTok videos without watermark\n"
             f"⚡ Fast, free, and easy to use!\n\n"
-            f"_Just send any TikTok link and get your video!_",
-            parse_mode=ParseMode.MARKDOWN,
+            f"<i>Just send any TikTok link and get your video!</i>",
+            parse_mode=HTML,
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Home", callback_data="home")]]),
         )
 
@@ -279,11 +277,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         downloads = u.get("downloads", 0)
         joined = u.get("joined", "—")[:10]
         await query.edit_message_text(
-            f"📊 *Your Statistics*\n\n"
-            f"👤 Name: {user.full_name}\n"
-            f"📥 Downloads: `{downloads}`\n"
-            f"📅 Joined: `{joined}`\n",
-            parse_mode=ParseMode.MARKDOWN,
+            f"📊 <b>Your Statistics</b>\n\n"
+            f"👤 Name: {h(user.full_name)}\n"
+            f"📥 Downloads: <code>{downloads}</code>\n"
+            f"📅 Joined: <code>{h(joined)}</code>\n",
+            parse_mode=HTML,
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Home", callback_data="home")]]),
         )
 
@@ -297,8 +295,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             member = await context.bot.get_chat_member(channel, user.id)
             if member.status not in ["left", "kicked"]:
                 await query.edit_message_text(
-                    "✅ *Verified!* You can now use the bot.\n\nSend any TikTok link!",
-                    parse_mode=ParseMode.MARKDOWN,
+                    "✅ <b>Verified!</b> You can now use the bot.\n\nSend any TikTok link!",
+                    parse_mode=HTML,
                 )
             else:
                 await query.answer("⚠️ Please join the channel first!", show_alert=True)

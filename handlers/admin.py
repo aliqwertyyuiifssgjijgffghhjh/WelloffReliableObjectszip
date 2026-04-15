@@ -1,8 +1,14 @@
+import html as html_mod
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 import database as db
-import os
+
+HTML = ParseMode.HTML
+
+
+def h(text) -> str:
+    return html_mod.escape(str(text))
 
 
 def admin_keyboard():
@@ -50,11 +56,15 @@ def settings_keyboard():
     keyboard = [
         [InlineKeyboardButton(f"🛠️ Maintenance Mode: {maint}", callback_data="toggle_maintenance")],
         [InlineKeyboardButton(f"📌 Force Join: {fj}", callback_data="toggle_force_join")],
-        [InlineKeyboardButton(f"📣 Set Force Join Channel", callback_data="set_force_channel")],
-        [InlineKeyboardButton(f"✏️ Edit Welcome Message", callback_data="edit_welcome")],
+        [InlineKeyboardButton("📣 Set Force Join Channel", callback_data="set_force_channel")],
+        [InlineKeyboardButton("✏️ Edit Welcome Message", callback_data="edit_welcome")],
         [InlineKeyboardButton("🔙 Back to Admin", callback_data="admin_panel")],
     ]
     return InlineKeyboardMarkup(keyboard)
+
+
+def back_btn(label="🔙 Back", cb="admin_panel"):
+    return InlineKeyboardMarkup([[InlineKeyboardButton(label, callback_data=cb)]])
 
 
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -63,8 +73,8 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⛔ You are not an admin.")
         return
     await update.message.reply_text(
-        "👑 *Admin Panel*\n\nChoose an option:",
-        parse_mode=ParseMode.MARKDOWN,
+        "👑 <b>Admin Panel</b>\n\nChoose an option:",
+        parse_mode=HTML,
         reply_markup=admin_keyboard(),
     )
 
@@ -80,205 +90,203 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
     data = query.data
 
+    # ── Admin Panel home ──────────────────────────────────────────────────────
     if data == "admin_panel":
         await query.edit_message_text(
-            "👑 *Admin Panel*\n\nChoose an option:",
-            parse_mode=ParseMode.MARKDOWN,
+            "👑 <b>Admin Panel</b>\n\nChoose an option:",
+            parse_mode=HTML,
             reply_markup=admin_keyboard(),
         )
 
+    # ── Statistics ────────────────────────────────────────────────────────────
     elif data == "admin_stats":
         stats = db.get_stats()
-        users = db.get_all_users()
-        total_dl = stats.get("total_downloads", 0)
-        total_users = len(users)
+        total_users = db.user_count()
         banned = len(db.get_banned())
         admins = len(db.get_admins())
-        text = (
-            "📊 *Bot Statistics*\n\n"
-            f"👥 Total Users: `{total_users}`\n"
-            f"📥 Total Downloads: `{total_dl}`\n"
-            f"🚫 Banned Users: `{banned}`\n"
-            f"👑 Admins: `{admins}`\n"
-        )
+        total_dl = stats.get("total_downloads", 0)
         await query.edit_message_text(
-            text,
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]),
+            "📊 <b>Bot Statistics</b>\n\n"
+            f"👥 Total Users: <code>{total_users}</code>\n"
+            f"📥 Total Downloads: <code>{total_dl}</code>\n"
+            f"🚫 Banned Users: <code>{banned}</code>\n"
+            f"👑 Admins: <code>{admins}</code>\n",
+            parse_mode=HTML,
+            reply_markup=back_btn(),
         )
 
+    # ── Users list ────────────────────────────────────────────────────────────
     elif data == "admin_users":
         users = db.get_all_users()
         total = len(users)
-        lines = [f"👥 *Users List* ({total} total)\n"]
+        lines = [f"👥 <b>Users List</b> ({total} total)\n"]
         for uid, u in list(users.items())[:20]:
-            name = u.get("full_name", "Unknown")
+            name = h(u.get("full_name", "Unknown"))
             dls = u.get("downloads", 0)
-            lines.append(f"• {name} (`{uid}`) — {dls} downloads")
+            lines.append(f"• {name} (<code>{uid}</code>) — {dls} downloads")
         if total > 20:
-            lines.append(f"\n_...and {total - 20} more_")
+            lines.append(f"\n<i>...and {total - 20} more</i>")
         await query.edit_message_text(
             "\n".join(lines),
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]),
+            parse_mode=HTML,
+            reply_markup=back_btn(),
         )
 
+    # ── Broadcast ─────────────────────────────────────────────────────────────
     elif data == "admin_broadcast":
         context.user_data["admin_action"] = "broadcast"
         await query.edit_message_text(
-            "📢 *Broadcast*\n\nSend the message you want to broadcast to all users:",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_panel")]]),
+            "📢 <b>Broadcast</b>\n\nSend the message you want to broadcast to all users:",
+            parse_mode=HTML,
+            reply_markup=back_btn("❌ Cancel"),
         )
 
+    # ── Ban ───────────────────────────────────────────────────────────────────
     elif data == "admin_ban":
         context.user_data["admin_action"] = "ban"
         await query.edit_message_text(
-            "🔨 *Ban User*\n\nSend the user ID to ban (optionally add reason after a space):\n`123456789 spam`",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_panel")]]),
+            "🔨 <b>Ban User</b>\n\nSend the user ID to ban (optionally add reason after a space):\n"
+            "<code>123456789 spam</code>",
+            parse_mode=HTML,
+            reply_markup=back_btn("❌ Cancel"),
         )
 
+    # ── Unban ─────────────────────────────────────────────────────────────────
     elif data == "admin_unban":
         context.user_data["admin_action"] = "unban"
         await query.edit_message_text(
-            "✅ *Unban User*\n\nSend the user ID to unban:",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_panel")]]),
+            "✅ <b>Unban User</b>\n\nSend the user ID to unban:",
+            parse_mode=HTML,
+            reply_markup=back_btn("❌ Cancel"),
         )
 
+    # ── Banned list ───────────────────────────────────────────────────────────
     elif data == "admin_banned_list":
         banned = db.get_banned()
         if not banned:
             text = "✅ No banned users."
         else:
-            lines = [f"🚫 *Banned Users* ({len(banned)} total)\n"]
+            lines = [f"🚫 <b>Banned Users</b> ({len(banned)} total)\n"]
             for uid, info in banned.items():
-                reason = info.get("reason", "—")
-                lines.append(f"• `{uid}` — {reason}")
+                reason = h(info.get("reason", "—"))
+                lines.append(f"• <code>{uid}</code> — {reason}")
             text = "\n".join(lines)
-        await query.edit_message_text(
-            text,
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]),
-        )
+        await query.edit_message_text(text, parse_mode=HTML, reply_markup=back_btn())
 
+    # ── Add admin ─────────────────────────────────────────────────────────────
     elif data == "admin_add_admin":
         context.user_data["admin_action"] = "add_admin"
         await query.edit_message_text(
-            "👑 *Add Admin*\n\nSend the user ID to promote:",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_panel")]]),
+            "👑 <b>Add Admin</b>\n\nSend the user ID to promote:",
+            parse_mode=HTML,
+            reply_markup=back_btn("❌ Cancel"),
         )
 
+    # ── Remove admin ──────────────────────────────────────────────────────────
     elif data == "admin_remove_admin":
         context.user_data["admin_action"] = "remove_admin"
         await query.edit_message_text(
-            "❌ *Remove Admin*\n\nSend the user ID to demote:",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_panel")]]),
+            "❌ <b>Remove Admin</b>\n\nSend the user ID to demote:",
+            parse_mode=HTML,
+            reply_markup=back_btn("❌ Cancel"),
         )
 
+    # ── Admin list ────────────────────────────────────────────────────────────
     elif data == "admin_admin_list":
         admins = db.get_admins()
         if not admins:
             text = "No admins configured."
         else:
-            lines = [f"👑 *Admin List* ({len(admins)} total)\n"]
+            lines = [f"👑 <b>Admin List</b> ({len(admins)} total)\n"]
             for aid in admins:
                 user = db.get_user(aid)
-                name = user.get("full_name", "Unknown") if user else "Unknown"
-                lines.append(f"• {name} (`{aid}`)")
+                name = h(user.get("full_name", "Unknown")) if user else "Unknown"
+                lines.append(f"• {name} (<code>{aid}</code>)")
             text = "\n".join(lines)
-        await query.edit_message_text(
-            text,
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]),
-        )
+        await query.edit_message_text(text, parse_mode=HTML, reply_markup=back_btn())
 
+    # ── Settings panel ────────────────────────────────────────────────────────
     elif data == "admin_settings":
         settings = db.get_settings()
-        text = (
-            "🔧 *Bot Settings*\n\n"
-            f"🛠️ Maintenance: `{'ON' if settings['maintenance'] else 'OFF'}`\n"
-            f"📌 Force Join: `{'ON' if settings['force_join'] else 'OFF'}`\n"
-            f"📣 Channel: `{settings['force_join_channel'] or 'Not set'}`\n"
-        )
         await query.edit_message_text(
-            text,
-            parse_mode=ParseMode.MARKDOWN,
+            "🔧 <b>Bot Settings</b>\n\n"
+            f"🛠️ Maintenance: <code>{'ON' if settings['maintenance'] else 'OFF'}</code>\n"
+            f"📌 Force Join: <code>{'ON' if settings['force_join'] else 'OFF'}</code>\n"
+            f"📣 Channel: <code>{h(settings['force_join_channel'] or 'Not set')}</code>\n",
+            parse_mode=HTML,
             reply_markup=settings_keyboard(),
         )
 
-    elif data == "toggle_maintenance":
+    # ── Toggle maintenance ────────────────────────────────────────────────────
+    elif data in ("toggle_maintenance", "admin_maintenance"):
         settings = db.get_settings()
         new_val = not settings["maintenance"]
         db.update_setting("maintenance", new_val)
         status = "enabled" if new_val else "disabled"
         db.write_log(f"Admin {user_id} {status} maintenance mode")
-        await query.edit_message_text(
-            f"🛠️ Maintenance mode *{'enabled' if new_val else 'disabled'}*.",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=settings_keyboard(),
-        )
+        if data == "toggle_maintenance":
+            await query.edit_message_text(
+                f"🛠️ Maintenance mode <b>{status}</b>.",
+                parse_mode=HTML,
+                reply_markup=settings_keyboard(),
+            )
+        else:
+            await query.edit_message_text(
+                f"🛠️ Maintenance mode <b>{status}</b>.",
+                parse_mode=HTML,
+                reply_markup=back_btn(),
+            )
 
+    # ── Toggle force join ─────────────────────────────────────────────────────
     elif data == "toggle_force_join":
         settings = db.get_settings()
         new_val = not settings["force_join"]
         db.update_setting("force_join", new_val)
         await query.edit_message_text(
-            f"📌 Force join *{'enabled' if new_val else 'disabled'}*.",
-            parse_mode=ParseMode.MARKDOWN,
+            f"📌 Force join <b>{'enabled' if new_val else 'disabled'}</b>.",
+            parse_mode=HTML,
             reply_markup=settings_keyboard(),
         )
 
+    # ── Set force join channel ────────────────────────────────────────────────
     elif data == "set_force_channel":
         context.user_data["admin_action"] = "set_force_channel"
         await query.edit_message_text(
-            "📣 Send the channel username (e.g. @mychannel):",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_settings")]]),
+            "📣 Send the channel username (e.g. <code>@mychannel</code>):",
+            parse_mode=HTML,
+            reply_markup=back_btn("❌ Cancel", "admin_settings"),
         )
 
+    # ── Edit welcome message ──────────────────────────────────────────────────
     elif data == "edit_welcome":
         context.user_data["admin_action"] = "edit_welcome"
         await query.edit_message_text(
             "✏️ Send the new welcome message:",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_settings")]]),
+            parse_mode=HTML,
+            reply_markup=back_btn("❌ Cancel", "admin_settings"),
         )
 
-    elif data == "admin_maintenance":
-        settings = db.get_settings()
-        new_val = not settings["maintenance"]
-        db.update_setting("maintenance", new_val)
-        status = "enabled" if new_val else "disabled"
-        db.write_log(f"Admin {user_id} {status} maintenance mode via quick toggle")
-        await query.edit_message_text(
-            f"🛠️ Maintenance mode *{status}*.",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]),
-        )
-
+    # ── Message user ──────────────────────────────────────────────────────────
     elif data == "admin_msg_user":
         context.user_data["admin_action"] = "msg_user_id"
         await query.edit_message_text(
-            "📨 *Message User*\n\nSend the user ID first:",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_panel")]]),
+            "📨 <b>Message User</b>\n\nSend the user ID first:",
+            parse_mode=HTML,
+            reply_markup=back_btn("❌ Cancel"),
         )
 
+    # ── Export users ──────────────────────────────────────────────────────────
     elif data == "admin_export":
         users = db.get_all_users()
         lines = ["ID,Username,Name,Joined,Downloads"]
         for uid, u in users.items():
             lines.append(
-                f"{uid},{u.get('username','')},{u.get('full_name','')},{u.get('joined','')},{u.get('downloads',0)}"
+                f"{uid},{u.get('username','')},{u.get('full_name','').replace(',', ' ')},"
+                f"{u.get('joined','')},{u.get('downloads',0)}"
             )
-        csv_text = "\n".join(lines)
         csv_path = "data/users_export.csv"
         with open(csv_path, "w") as f:
-            f.write(csv_text)
+            f.write("\n".join(lines))
         await query.message.reply_document(
             document=open(csv_path, "rb"),
             filename="users_export.csv",
@@ -286,43 +294,43 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         )
         await query.edit_message_text(
             "✅ Export sent above.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]),
+            reply_markup=back_btn(),
         )
 
+    # ── View logs ─────────────────────────────────────────────────────────────
     elif data == "admin_logs":
         logs = db.read_logs(30)
         if len(logs) > 3500:
             logs = logs[-3500:]
         await query.edit_message_text(
-            f"📜 *Recent Logs*\n\n```\n{logs}\n```",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]),
+            f"📜 <b>Recent Logs</b>\n\n<pre>{h(logs)}</pre>",
+            parse_mode=HTML,
+            reply_markup=back_btn(),
         )
 
+    # ── Clear logs ────────────────────────────────────────────────────────────
     elif data == "admin_clear_logs":
         db.clear_logs()
-        await query.edit_message_text(
-            "🗑️ Logs cleared.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]),
-        )
+        await query.edit_message_text("🗑️ Logs cleared.", reply_markup=back_btn())
 
+    # ── Download stats ────────────────────────────────────────────────────────
     elif data == "admin_dl_stats":
         users = db.get_all_users()
         stats = db.get_stats()
         total_dl = stats.get("total_downloads", 0)
         top = sorted(users.values(), key=lambda u: u.get("downloads", 0), reverse=True)[:10]
-        lines = [f"📥 *Download Statistics*\n\nTotal: `{total_dl}`\n\n🏆 Top Users:"]
+        lines = [f"📥 <b>Download Statistics</b>\n\nTotal: <code>{total_dl}</code>\n\n🏆 Top Users:"]
         for i, u in enumerate(top, 1):
-            lines.append(f"{i}. {u.get('full_name', 'Unknown')} — {u.get('downloads', 0)} downloads")
+            lines.append(f"{i}. {h(u.get('full_name', 'Unknown'))} — {u.get('downloads', 0)} downloads")
         await query.edit_message_text(
             "\n".join(lines),
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]),
+            parse_mode=HTML,
+            reply_markup=back_btn(),
         )
 
 
 async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Handles admin text input for pending actions. Returns True if handled."""
+    """Handle pending admin text input. Returns True if the message was consumed."""
     user_id = update.effective_user.id
     if not db.is_admin(user_id):
         return False
@@ -334,9 +342,13 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     text = update.message.text.strip()
     context.user_data.pop("admin_action", None)
 
+    def reply(msg, **kw):
+        return update.message.reply_text(msg, parse_mode=HTML, **kw)
+
+    # ── Broadcast ─────────────────────────────────────────────────────────────
     if action == "broadcast":
         users = db.get_all_users()
-        sent, failed = 0, 0
+        sent = failed = 0
         for uid in users:
             try:
                 await context.bot.send_message(int(uid), text)
@@ -344,12 +356,13 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             except Exception:
                 failed += 1
         db.write_log(f"Admin {user_id} broadcast to {sent} users ({failed} failed)")
-        await update.message.reply_text(
-            f"📢 Broadcast complete!\n✅ Sent: {sent}\n❌ Failed: {failed}",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")]]),
+        await reply(
+            f"📢 Broadcast complete!\n✅ Sent: <b>{sent}</b>\n❌ Failed: <b>{failed}</b>",
+            reply_markup=back_btn("🔙 Admin Panel"),
         )
         return True
 
+    # ── Ban ───────────────────────────────────────────────────────────────────
     elif action == "ban":
         parts = text.split(None, 1)
         try:
@@ -357,103 +370,104 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             reason = parts[1] if len(parts) > 1 else "No reason"
             db.ban_user(ban_id, reason)
             db.write_log(f"Admin {user_id} banned {ban_id}: {reason}")
-            await update.message.reply_text(
-                f"🔨 User `{ban_id}` has been banned.\nReason: {reason}",
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")]]),
+            await reply(
+                f"🔨 User <code>{ban_id}</code> has been banned.\nReason: {h(reason)}",
+                reply_markup=back_btn("🔙 Admin Panel"),
             )
         except ValueError:
-            await update.message.reply_text("❌ Invalid user ID.")
+            await reply("❌ Invalid user ID.")
         return True
 
+    # ── Unban ─────────────────────────────────────────────────────────────────
     elif action == "unban":
         try:
             unban_id = int(text)
             db.unban_user(unban_id)
             db.write_log(f"Admin {user_id} unbanned {unban_id}")
-            await update.message.reply_text(
-                f"✅ User `{unban_id}` has been unbanned.",
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")]]),
+            await reply(
+                f"✅ User <code>{unban_id}</code> has been unbanned.",
+                reply_markup=back_btn("🔙 Admin Panel"),
             )
         except ValueError:
-            await update.message.reply_text("❌ Invalid user ID.")
+            await reply("❌ Invalid user ID.")
         return True
 
+    # ── Add admin ─────────────────────────────────────────────────────────────
     elif action == "add_admin":
         try:
             new_admin = int(text)
             db.add_admin(new_admin)
             db.write_log(f"Admin {user_id} promoted {new_admin}")
-            await update.message.reply_text(
-                f"👑 User `{new_admin}` is now an admin.",
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")]]),
+            await reply(
+                f"👑 User <code>{new_admin}</code> is now an admin.",
+                reply_markup=back_btn("🔙 Admin Panel"),
             )
         except ValueError:
-            await update.message.reply_text("❌ Invalid user ID.")
+            await reply("❌ Invalid user ID.")
         return True
 
+    # ── Remove admin ──────────────────────────────────────────────────────────
     elif action == "remove_admin":
         try:
             rem_admin = int(text)
             if rem_admin == user_id:
-                await update.message.reply_text("❌ You cannot demote yourself.")
+                await reply("❌ You cannot demote yourself.")
             else:
                 db.remove_admin(rem_admin)
                 db.write_log(f"Admin {user_id} demoted {rem_admin}")
-                await update.message.reply_text(
-                    f"✅ User `{rem_admin}` removed from admins.",
-                    parse_mode=ParseMode.MARKDOWN,
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")]]),
+                await reply(
+                    f"✅ User <code>{rem_admin}</code> removed from admins.",
+                    reply_markup=back_btn("🔙 Admin Panel"),
                 )
         except ValueError:
-            await update.message.reply_text("❌ Invalid user ID.")
+            await reply("❌ Invalid user ID.")
         return True
 
+    # ── Set force join channel ────────────────────────────────────────────────
     elif action == "set_force_channel":
         db.update_setting("force_join_channel", text)
-        await update.message.reply_text(
-            f"✅ Force join channel set to {text}",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Settings", callback_data="admin_settings")]]),
+        await reply(
+            f"✅ Force join channel set to <code>{h(text)}</code>",
+            reply_markup=back_btn("🔙 Settings", "admin_settings"),
         )
         return True
 
+    # ── Edit welcome message ──────────────────────────────────────────────────
     elif action == "edit_welcome":
         db.update_setting("welcome_message", text)
-        await update.message.reply_text(
+        await reply(
             "✅ Welcome message updated.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Settings", callback_data="admin_settings")]]),
+            reply_markup=back_btn("🔙 Settings", "admin_settings"),
         )
         return True
 
+    # ── Message user — step 1: get target ID ─────────────────────────────────
     elif action == "msg_user_id":
         try:
             target_id = int(text)
             context.user_data["msg_user_target"] = target_id
             context.user_data["admin_action"] = "msg_user_text"
-            await update.message.reply_text(
-                f"📨 Now send the message for user `{target_id}`:",
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_panel")]]),
+            await reply(
+                f"📨 Now send the message for user <code>{target_id}</code>:",
+                reply_markup=back_btn("❌ Cancel"),
             )
         except ValueError:
-            await update.message.reply_text("❌ Invalid user ID.")
+            await reply("❌ Invalid user ID.")
         return True
 
+    # ── Message user — step 2: send message ──────────────────────────────────
     elif action == "msg_user_text":
         target_id = context.user_data.pop("msg_user_target", None)
         if target_id:
             try:
                 await context.bot.send_message(target_id, f"📨 Message from admin:\n\n{text}")
                 db.write_log(f"Admin {user_id} messaged user {target_id}")
-                await update.message.reply_text(
-                    f"✅ Message sent to `{target_id}`.",
-                    parse_mode=ParseMode.MARKDOWN,
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")]]),
+                await reply(
+                    f"✅ Message sent to <code>{target_id}</code>.",
+                    reply_markup=back_btn("🔙 Admin Panel"),
                 )
             except Exception as e:
-                await update.message.reply_text(f"❌ Failed to send: {e}")
+                await reply(f"❌ Failed to send: {h(str(e))}")
         return True
 
     return False
