@@ -1,6 +1,8 @@
 import logging
 import os
 import html as html_mod
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -306,10 +308,29 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 
+def run_keep_alive():
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"Bot is alive!")
+
+        def log_message(self, format, *args):
+            pass
+
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), Handler)
+    server.serve_forever()
+
+
 def main():
     if not BOT_TOKEN:
         logger.error("TELEGRAM_BOT_TOKEN is not set!")
         return
+
+    t = threading.Thread(target=run_keep_alive, daemon=True)
+    t.start()
+    logger.info("Keep-alive server started.")
 
     app = Application.builder().token(BOT_TOKEN).build()
 
