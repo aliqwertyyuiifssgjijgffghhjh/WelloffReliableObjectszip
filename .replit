@@ -27,3 +27,11 @@ args = "python3 main.py"
 
 [workflows.workflow.metadata]
 outputType = "console"
+
+[userenv]
+
+[userenv.shared]
+
+[deployment]
+deploymentTarget = "vm"
+run = ["python", "main.py"]
