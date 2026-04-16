@@ -8,5 +8,6 @@ dependencies = [
     "aiohttp>=3.13.5",
     "python-telegram-bot==20.7",
     "requests>=2.33.1",
+    "telegram>=0.0.1",
     "yt-dlp>=2026.3.17",
 ]
